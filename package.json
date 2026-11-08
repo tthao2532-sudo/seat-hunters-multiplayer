@@ -1,0 +1,9 @@
+{
+  "name": "seat-hunters-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "60-second real-time Taipei MRT seat hunting game",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "express": "^4.21.2", "socket.io": "^4.8.1" }
+}
