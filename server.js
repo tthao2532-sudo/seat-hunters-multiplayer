@@ -39,7 +39,14 @@ function reveal(room) {
   const winner = correct[0]?.[0] || null;
   if (winner && room.players.has(winner)) { room.players.get(winner).score += 20; room.lucky = winner; }
   room.phase = 'reveal'; room.phaseEnd = Date.now() + 2000;
-  room.seats = room.vacated.map((pos,i) => ({ pos, type: i === 0 && winner ? 'lucky' : 'free', owner: i === 0 && winner ? winner : null }));
+  // The Lucky Seat MUST be the exact seat predicted by the earliest correct player.
+  // Do not use vacated[0]: the departing seats are in random order.
+  const luckyPos = winner ? room.predictions.get(winner).seat : null;
+  room.seats = room.vacated.map(pos => ({
+    pos,
+    type: pos === luckyPos ? 'lucky' : 'free',
+    owner: pos === luckyPos ? winner : null
+  }));
   // If no correct guess, all 3 seats become free.
   room.last = { correct: correct.map(([id]) => id), lucky: winner };
   broadcast(room);
