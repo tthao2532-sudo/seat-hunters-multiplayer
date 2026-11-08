@@ -10,6 +10,7 @@ const io = new Server(server, { cors: { origin: false } });
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_, res) => res.json({ ok: true }));
 const rooms = new Map();
+const LOBBY_GRACE_MS = 30 * 60 * 1000; // Keep disconnected lobby players for 30 minutes
 const stations = ['Taipei Main Station','NTU Hospital','Chiang Kai-shek Memorial Hall','Dongmen','Daan Park'];
 const names = ['Mei','Jun','Lin','Chen','Wei','Yu','An','Kai','Xin','Bo'];
 const randomId = () => crypto.randomBytes(12).toString('hex');
@@ -83,18 +84,19 @@ function join(socket, code, name, token, reply) {
     if (room.players.size >= 40) return reply({ok:false,error:'Room is full (40 players).'});
     const clean = sanitize(name);
     if (!clean) return reply({ok:false,error:'Please enter your name.'});
-    const id = randomId(); player = { id, token:randomId(), name:clean, score:0, connected:false, socketId:null }; room.players.set(id,player);
+    const id = randomId(); player = { id, token:randomId(), name:clean, score:0, connected:false, socketId:null, disconnectedAt:null }; room.players.set(id,player);
   }
   if (player.socketId) { const old=io.sockets.sockets.get(player.socketId); if(old && old.id!==socket.id) old.disconnect(true); }
-  player.socketId=socket.id; player.connected=true; socket.join(code); socket.data.roomCode=code; socket.data.playerId=player.id;
-  if (!room.host || !room.players.get(room.host)?.connected) room.host=player.id;
+  player.socketId=socket.id; player.connected=true; player.disconnectedAt=null; room.lastActiveAt=Date.now(); socket.join(code); socket.data.roomCode=code; socket.data.playerId=player.id;
+  if (!room.host || !room.players.has(room.host)) room.host=player.id;
+  else if (!room.players.get(room.host).connected && room.host!==player.id) room.host=player.id;
   reply({ok:true,code,id:player.id,token:player.token}); broadcast(room);
 }
 io.on('connection', socket => {
   socket.on('createRoom', (name, reply) => {
     if (typeof reply !== 'function') return;
     const clean=sanitize(name); if (!clean) return reply({ok:false,error:'Enter your name first.'});
-    const code=makeCode(); rooms.set(code,{code,host:null,status:'lobby',players:new Map(),timers:[],round:-1,phase:'lobby',predictions:new Map(),seats:[],result:null});
+    const code=makeCode(); rooms.set(code,{code,host:null,status:'lobby',players:new Map(),timers:[],round:-1,phase:'lobby',predictions:new Map(),seats:[],result:null,lastActiveAt:Date.now()});
     join(socket,code,clean,null,reply);
   });
   socket.on('joinRoom', ({code,name,token} = {}, reply) => {
@@ -105,7 +107,7 @@ io.on('connection', socket => {
     const x=getPlayerRoom(socket); if(!x) return;
     const {room,player}=x;
     if (room.host!==player.id || room.status!=='lobby') return emitError(socket,'Only the host can start the game.');
-    if (room.players.size < 2) return emitError(socket,'At least 2 players are required.');
+    if ([...room.players.values()].filter(p=>p.connected).length < 2) return emitError(socket,'At least 2 connected players are required.');
     room.status='playing'; room.players.forEach(p=>p.score=0); startRound(room,0);
   });
   socket.on('predict', (pos) => {
@@ -127,14 +129,32 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {
     const code=socket.data.roomCode, id=socket.data.playerId, room=rooms.get(code), player=room?.players.get(id);
     if(!room||!player||player.socketId!==socket.id) return;
-    player.connected=false; player.socketId=null;
-    if(room.status==='lobby') { room.players.delete(id); if(room.host===id) room.host=[...room.players.keys()][0]||null; }
-    else if(room.host===id) room.host=[...room.players.values()].find(p=>p.connected)?.id||null;
-    if(room.players.size===0 && room.status==='lobby') { clearTimers(room); rooms.delete(code); }
-    else broadcast(room);
+    player.connected=false; player.socketId=null; player.disconnectedAt=Date.now();
+    room.lastActiveAt=Date.now();
+    // Do not delete the player or the lobby on a temporary disconnection.
+    // Their saved token lets them return to the same room.
+    if(room.status!=='lobby' && room.host===id) room.host=[...room.players.values()].find(p=>p.connected)?.id||null;
+    broadcast(room);
   });
 });
 // Expire abandoned rooms to prevent unbounded memory use.
-setInterval(()=>{ for(const [code,room] of rooms){ if(room.status==='finished' && room.result && room.finishedAt && Date.now()-room.finishedAt>3600000){clearTimers(room);rooms.delete(code);} } },600000).unref();
+setInterval(()=>{
+  const now=Date.now();
+  for(const [code,room] of rooms){
+    if(room.status==='lobby'){
+      // Remove players who have been offline for over 30 minutes.
+      for(const [id,p] of room.players){
+        if(!p.connected && p.disconnectedAt && now-p.disconnectedAt>=LOBBY_GRACE_MS) room.players.delete(id);
+      }
+      if(!room.players.has(room.host)) room.host=[...room.players.values()].find(p=>p.connected)?.id||[...room.players.keys()][0]||null;
+      // Only expire an abandoned lobby after its 30-minute grace period.
+      if(![...room.players.values()].some(p=>p.connected) && now-(room.lastActiveAt||now)>=LOBBY_GRACE_MS){
+        clearTimers(room);rooms.delete(code);continue;
+      }
+      broadcast(room);
+    }
+    if(room.status==='finished' && room.finishedAt && now-room.finishedAt>3600000){clearTimers(room);rooms.delete(code);}
+  }
+},60000).unref();
 const PORT=process.env.PORT||3000;
 server.listen(PORT,'0.0.0.0',()=>console.log(`Seat Hunters listening on ${PORT}`));
