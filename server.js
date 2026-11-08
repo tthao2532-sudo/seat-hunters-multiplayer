@@ -137,4 +137,4 @@ io.on('connection', socket => {
 // Expire abandoned rooms to prevent unbounded memory use.
 setInterval(()=>{ for(const [code,room] of rooms){ if(room.status==='finished' && room.result && room.finishedAt && Date.now()-room.finishedAt>3600000){clearTimers(room);rooms.delete(code);} } },600000).unref();
 const PORT=process.env.PORT||3000;
-server.listen(PORT,'0.0.0.0',()=>console.log(`Seat Hunters listening on ${PORT}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(Seat Hunters listening on ${PORT}));
