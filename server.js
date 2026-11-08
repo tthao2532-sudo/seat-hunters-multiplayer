@@ -10,6 +10,7 @@ const io = new Server(server, { cors: { origin: false } });
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_, res) => res.json({ ok: true }));
 const rooms = new Map();
+const LOBBY_GRACE_MS = 30 * 60 * 1000; // Keep an empty lobby for 30 minutes
 const stations = ['Taipei Main Station','NTU Hospital','Chiang Kai-shek Memorial Hall','Dongmen','Daan Park'];
 const names = ['Mei','Jun','Lin','Chen','Wei','Yu','An','Kai','Xin','Bo'];
 const randomId = () => crypto.randomBytes(12).toString('hex');
@@ -86,7 +87,7 @@ function join(socket, code, name, token, reply) {
     const id = randomId(); player = { id, token:randomId(), name:clean, score:0, connected:false, socketId:null }; room.players.set(id,player);
   }
   if (player.socketId) { const old=io.sockets.sockets.get(player.socketId); if(old && old.id!==socket.id) old.disconnect(true); }
-  player.socketId=socket.id; player.connected=true; socket.join(code); socket.data.roomCode=code; socket.data.playerId=player.id;
+  player.socketId=socket.id; player.connected=true; room.lastActiveAt=Date.now(); room.emptySince=null; socket.join(code); socket.data.roomCode=code; socket.data.playerId=player.id;
   if (!room.host || !room.players.get(room.host)?.connected) room.host=player.id;
   reply({ok:true,code,id:player.id,token:player.token}); broadcast(room);
 }
@@ -125,16 +126,39 @@ io.on('connection', socket => {
     seat.owner=player.id; player.score+=20; broadcast(room);
   });
   socket.on('disconnect', () => {
-    const code=socket.data.roomCode, id=socket.data.playerId, room=rooms.get(code), player=room?.players.get(id);
-    if(!room||!player||player.socketId!==socket.id) return;
-    player.connected=false; player.socketId=null;
-    if(room.status==='lobby') { room.players.delete(id); if(room.host===id) room.host=[...room.players.keys()][0]||null; }
-    else if(room.host===id) room.host=[...room.players.values()].find(p=>p.connected)?.id||null;
-    if(room.players.size===0 && room.status==='lobby') { clearTimers(room); rooms.delete(code); }
-    else broadcast(room);
+    const code = socket.data.roomCode;
+    const id = socket.data.playerId;
+    const room = rooms.get(code);
+    const player = room?.players.get(id);
+    if (!room || !player || player.socketId !== socket.id) return;
+
+    player.connected = false;
+    player.socketId = null;
+    // Do not remove players or rooms on a temporary disconnect.
+    // The browser reconnects with its saved token.
+    if (room.status !== 'lobby' && room.host === id) {
+      room.host = [...room.players.values()].find(p => p.connected)?.id || null;
+    }
+    if (room.status === 'lobby' && ![...room.players.values()].some(p => p.connected)) {
+      room.emptySince = Date.now();
+    }
+    broadcast(room);
   });
 });
 // Expire abandoned rooms to prevent unbounded memory use.
-setInterval(()=>{ for(const [code,room] of rooms){ if(room.status==='finished' && room.result && room.finishedAt && Date.now()-room.finishedAt>3600000){clearTimers(room);rooms.delete(code);} } },600000).unref();
+setInterval(() => {
+  const now = Date.now();
+  for (const [code, room] of rooms) {
+    if (room.status === 'lobby' && room.emptySince && now - room.emptySince >= LOBBY_GRACE_MS) {
+      clearTimers(room);
+      rooms.delete(code);
+      continue;
+    }
+    if (room.status === 'finished' && room.finishedAt && now - room.finishedAt > 3600000) {
+      clearTimers(room);
+      rooms.delete(code);
+    }
+  }
+}, 60000).unref();
 const PORT=process.env.PORT||3000;
 server.listen(PORT,'0.0.0.0',()=>console.log(`Seat Hunters listening on ${PORT}`));
