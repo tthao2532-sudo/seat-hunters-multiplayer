@@ -66,6 +66,25 @@
  .personAvatar{font-size:clamp(16px,4.4vw,23px)}
  .personName{font-size:clamp(7px,2vw,9px);padding:2px 1px}
 }
+
+/* Compact standing area and always-visible game countdown on phones. */
+@media(max-width:600px){
+  #gameArea > .card:first-child > .row:first-child{
+    position:sticky;top:0;z-index:40;background:#fff;
+    margin:-13px -13px 8px;padding:10px 13px 9px;
+    border-bottom:1px solid #e1e8ee;box-shadow:0 3px 10px #1c354516;
+    flex-wrap:nowrap;gap:5px;
+  }
+  #gameArea > .card:first-child > .row:first-child .big{font-size:12px;line-height:1.15;max-width:95px}
+  #gameArea > .card:first-child > .row:first-child .clock{font-size:19px;white-space:nowrap;text-align:center}
+  #gameArea > .card:first-child > .row:first-child .score{font-size:11px;white-space:nowrap}
+  .aisle{min-height:66px;gap:1px;padding:5px 1px 3px;margin:4px 0;align-content:center;row-gap:3px}
+  .personAvatar{font-size:15px;line-height:1.05}
+  .personName{font-size:7px;padding:1px 1px;line-height:1.15}
+  .standing{gap:1px}
+  .seat{min-height:60px}
+  .carriageFrame{margin-top:5px}
+}
 </style></head><body><header><div class="row"><div><h1>🚇 SEAT HUNTERS!</h1><small>Taipei MRT Red Line · LIVE Multiplayer · 60 seconds</small></div><span id="connection" class="pill">Connecting...</span></div></header><main class="wrap">
 <section id="entry" class="card"><h2>Ready to hunt for a seat?</h2><p class="muted">Join your classmates in the same room. One train, one clock, real competition.</p><label>Your name<br><input id="name" maxlength="20" placeholder="Enter your name" autocomplete="nickname"></label><div class="controls"><button id="create">Create room</button></div><hr><label>Room code<br><input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code"></label><div class="controls"><button id="join" class="secondary">Join room</button></div><p id="entryError" class="error"></p></section>
 <section id="lobby" class="card hidden"><div class="row"><h2>Waiting Lobby</h2><span class="pill">ROOM <span id="roomCode"></span></span></div><p class="muted">Share this code or the link below with classmates.</p><div class="controls"><button id="copy" class="outline small">Copy invite link</button><button id="start" class="secondary">Start game (host)</button></div><h3>Players (<span id="playerCount">0</span>)</h3><div id="lobbyPlayers" class="players"></div><p id="hostTip" class="note">Waiting for the host to start. At least 2 players needed.</p></section>
